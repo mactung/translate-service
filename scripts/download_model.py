@@ -49,14 +49,14 @@ def main() -> int:
             return 1
         converter = fallback
 
-    # OPUS-MT (MarianMT) ships SentencePiece source/target models, not a single
-    # sentencepiece.bpe.model file, so copy whatever the tokenizer needs.
+    # OPUS-MT (MarianMT) ships SentencePiece source/target models (source.spm,
+    # target.spm) and vocab.json. It does NOT ship special_tokens_map.json.
     cmd = [
         converter,
         "--model", HF_MODEL_NAME,
         "--output_dir", OUT_DIR,
         "--quantization", "int8",
-        "--copy_files", "tokenizer_config.json", "special_tokens_map.json", "source.spm", "target.spm", "vocab.json",
+        "--copy_files", "tokenizer_config.json", "source.spm", "target.spm", "vocab.json", "generation_config.json",
     ]
     print("running:", " ".join(cmd))
     return subprocess.call(cmd)
