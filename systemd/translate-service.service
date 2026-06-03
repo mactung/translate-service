@@ -14,7 +14,7 @@ Environment=MODEL_DIR=/root/apps/translate-service/models/nllb-200-distilled-600
 Environment=HF_MODEL_NAME=facebook/nllb-200-distilled-600M
 Environment=INTER_THREADS=1
 Environment=INTRA_THREADS=4
-Environment=BEAM_SIZE=4
+Environment=BEAM_SIZE=1
 Environment=MAX_INPUT_CHARS=5000
 Environment=OMP_NUM_THREADS=4
 ExecStart=/root/apps/translate-service/venv/bin/uvicorn app:app \
