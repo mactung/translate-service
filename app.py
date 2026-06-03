@@ -95,6 +95,8 @@ def translate(req: TranslateReq) -> TranslateResp:
         [source_pieces],
         beam_size=BEAM_SIZE,
         max_decoding_length=512,
+        repetition_penalty=1.2,
+        no_repeat_ngram_size=3,
     )
     target_pieces = results[0].hypotheses[0]
     text = tgt_spm.DecodePieces(target_pieces)
