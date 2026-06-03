@@ -14,10 +14,10 @@ import shutil
 import subprocess
 import sys
 
-HF_MODEL_NAME = "facebook/nllb-200-distilled-600M"
+HF_MODEL_NAME = "Helsinki-NLP/opus-mt-en-vi"
 OUT_DIR = os.environ.get(
     "MODEL_DIR",
-    "/root/apps/translate-service/models/nllb-200-distilled-600M-ct2",
+    "/root/apps/translate-service/models/opus-mt-en-vi-ct2",
 )
 
 
@@ -49,12 +49,14 @@ def main() -> int:
             return 1
         converter = fallback
 
+    # OPUS-MT (MarianMT) ships SentencePiece source/target models, not a single
+    # sentencepiece.bpe.model file, so copy whatever the tokenizer needs.
     cmd = [
         converter,
         "--model", HF_MODEL_NAME,
         "--output_dir", OUT_DIR,
         "--quantization", "int8",
-        "--copy_files", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "sentencepiece.bpe.model",
+        "--copy_files", "tokenizer_config.json", "special_tokens_map.json", "source.spm", "target.spm", "vocab.json",
     ]
     print("running:", " ".join(cmd))
     return subprocess.call(cmd)

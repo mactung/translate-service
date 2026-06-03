@@ -15,7 +15,8 @@ set -eu
 
 REPO_DIR="/root/apps/translate-service"
 VENV_DIR="$REPO_DIR/venv"
-MODEL_DIR="$REPO_DIR/models/nllb-200-distilled-600M-ct2"
+MODEL_DIR="$REPO_DIR/models/opus-mt-en-vi-ct2"
+OLD_MODEL_DIRS="$REPO_DIR/models/nllb-200-distilled-600M-ct2"
 SERVICE_NAME="translate-service"
 SERVICE_SRC="$REPO_DIR/systemd/${SERVICE_NAME}.service"
 SERVICE_DST="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -35,13 +36,19 @@ done
 [ "$(id -u)" -eq 0 ] || { echo "Run as root" >&2; exit 1; }
 cd "$REPO_DIR"
 
-echo "[1/6] stop & remove any prior libretranslate service"
+echo "[1/6] stop & remove any prior libretranslate service + old NLLB model dir"
 if systemctl list-unit-files | grep -q "^${OLD_SERVICE_NAME}\.service"; then
   systemctl stop "$OLD_SERVICE_NAME" || true
   systemctl disable "$OLD_SERVICE_NAME" || true
   rm -f "/etc/systemd/system/${OLD_SERVICE_NAME}.service"
   systemctl daemon-reload
 fi
+for old in $OLD_MODEL_DIRS; do
+  if [ -d "$old" ]; then
+    echo "    removing old model: $old"
+    rm -rf "$old"
+  fi
+done
 
 echo "[2/6] apt deps (skipped if already present)"
 need_apt=""
@@ -70,7 +77,7 @@ else
   "$VENV_DIR/bin/pip" install --upgrade -r requirements.txt
 fi
 
-echo "[5/6] download + convert NLLB-200 model (one-time, ~1.5 GB download)"
+echo "[5/6] download + convert OPUS-MT en→vi model (one-time, ~300 MB download)"
 if [ "$RECONVERT" -eq 1 ]; then
   "$VENV_DIR/bin/python" scripts/download_model.py --force
 else

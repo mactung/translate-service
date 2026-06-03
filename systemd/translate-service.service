@@ -1,5 +1,5 @@
 [Unit]
-Description=translate-service — NLLB-200-distilled-600M (en↔vi) via ctranslate2
+Description=translate-service — OPUS-MT en→vi (Helsinki-NLP) via ctranslate2
 After=network-online.target
 Wants=network-online.target
 
@@ -10,8 +10,8 @@ Group=root
 WorkingDirectory=/root/apps/translate-service
 Environment=PATH=/root/apps/translate-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=HOME=/root
-Environment=MODEL_DIR=/root/apps/translate-service/models/nllb-200-distilled-600M-ct2
-Environment=HF_MODEL_NAME=facebook/nllb-200-distilled-600M
+Environment=MODEL_DIR=/root/apps/translate-service/models/opus-mt-en-vi-ct2
+Environment=HF_MODEL_NAME=Helsinki-NLP/opus-mt-en-vi
 Environment=INTER_THREADS=1
 Environment=INTRA_THREADS=4
 Environment=BEAM_SIZE=1
@@ -24,8 +24,8 @@ ExecStart=/root/apps/translate-service/venv/bin/uvicorn app:app \
     --log-level info
 Restart=on-failure
 RestartSec=5
-# Tight cap on the 4 GB box. NLLB int8 needs ~1.5 GB; leave 500 MB for python overhead.
-MemoryMax=2500M
+# OPUS-MT int8 needs ~600 MB; cap loosely below the box's free RAM.
+MemoryMax=1500M
 TimeoutStartSec=120
 TimeoutStopSec=15
 
