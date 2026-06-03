@@ -71,6 +71,11 @@ fi
 
 echo "[4/6] pip install requirements"
 "$VENV_DIR/bin/pip" install --upgrade pip wheel >/dev/null
+# Install torch CPU-only first. ct2-transformers-converter needs torch at
+# conversion time (it loads the HF model in torch before exporting to CT2).
+# The default torch wheel drags in ~3 GB of CUDA libs we never use on this box;
+# the CPU index ships a 200 MB build instead.
+"$VENV_DIR/bin/pip" install --upgrade torch==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
 if [ "$REINSTALL_DEPS" -eq 1 ]; then
   "$VENV_DIR/bin/pip" install --upgrade --force-reinstall -r requirements.txt
 else
