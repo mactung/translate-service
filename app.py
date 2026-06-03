@@ -10,6 +10,11 @@ OPUS-MT is a dedicated en->vi MarianMT model (~75M params). Much faster than the
 multilingual NLLB-600M on CPU (~150-400 ms vs 1-4 s) at comparable quality for
 this single pair. Only en->vi is supported today; flipping direction would need
 the sibling opus-mt-vi-en model.
+
+We use the SentencePiece source.spm / target.spm files directly (the ones that
+ship with the OPUS-MT repo and are copied during ct2 conversion). The HF Marian
+tokenizer's convert_ids_to_tokens / decode roundtrip mangles spacing for some
+inputs, so going straight to SentencePiece is both faster and more reliable.
 """
 
 import logging
@@ -17,7 +22,7 @@ import os
 from typing import List
 
 import ctranslate2
-import transformers
+import sentencepiece as spm
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -25,7 +30,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("translate-service")
 
 MODEL_DIR = os.getenv("MODEL_DIR", "/root/apps/translate-service/models/opus-mt-en-vi-ct2")
-HF_MODEL_NAME = os.getenv("HF_MODEL_NAME", "Helsinki-NLP/opus-mt-en-vi")
 INTER_THREADS = int(os.getenv("INTER_THREADS", "1"))
 INTRA_THREADS = int(os.getenv("INTRA_THREADS", "4"))
 BEAM_SIZE = int(os.getenv("BEAM_SIZE", "1"))
@@ -41,9 +45,12 @@ translator = ctranslate2.Translator(
     inter_threads=INTER_THREADS,
     intra_threads=INTRA_THREADS,
 )
-log.info("loading tokenizer %s", HF_MODEL_NAME)
-tokenizer = transformers.AutoTokenizer.from_pretrained(HF_MODEL_NAME)
-log.info("model + tokenizer ready")
+
+src_spm = spm.SentencePieceProcessor()
+src_spm.Load(os.path.join(MODEL_DIR, "source.spm"))
+tgt_spm = spm.SentencePieceProcessor()
+tgt_spm.Load(os.path.join(MODEL_DIR, "target.spm"))
+log.info("model + tokenizers ready")
 
 
 class TranslateReq(BaseModel):
@@ -83,13 +90,12 @@ def translate(req: TranslateReq) -> TranslateResp:
     if len(req.q) > MAX_INPUT_CHARS:
         raise HTTPException(status_code=413, detail=f"q exceeds {MAX_INPUT_CHARS} chars")
 
-    source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(req.q))
+    source_pieces = src_spm.EncodeAsPieces(req.q)
     results = translator.translate_batch(
-        [source_tokens],
+        [source_pieces],
         beam_size=BEAM_SIZE,
         max_decoding_length=512,
     )
-    target_tokens = results[0].hypotheses[0]
-    target_ids = tokenizer.convert_tokens_to_ids(target_tokens)
-    text = tokenizer.decode(target_ids, skip_special_tokens=True)
+    target_pieces = results[0].hypotheses[0]
+    text = tgt_spm.DecodePieces(target_pieces)
     return TranslateResp(translatedText=text)
