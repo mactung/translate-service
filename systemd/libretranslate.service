@@ -1,0 +1,36 @@
+[Unit]
+Description=LibreTranslate (Argos NMT) — en→vi for shadowingenglish.com
+Documentation=https://github.com/LibreTranslate/LibreTranslate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/apps/translate-service
+Environment=PATH=/root/apps/translate-service/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/root
+ExecStart=/root/apps/translate-service/venv/bin/libretranslate \
+    --host 127.0.0.1 \
+    --port 5050 \
+    --load-only en,vi \
+    --threads 2 \
+    --char-limit 5000 \
+    --req-limit 120 \
+    --batch-limit 32 \
+    --disable-web-ui \
+    --disable-files-translation
+Restart=on-failure
+RestartSec=5
+# Memory cap (2 GB). OOM kill rather than swap thrashing on the 4 GB box.
+MemoryMax=2G
+# Stop quickly; gunicorn handles graceful shutdown.
+TimeoutStopSec=15
+
+# Hardening (root user, but still drop what we can)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

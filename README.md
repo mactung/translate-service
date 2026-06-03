@@ -1,51 +1,41 @@
 # translate-service
 
-Self-hosted English↔Vietnamese translation backed by **NLLB-200-distilled-600M** (Meta) via **ctranslate2** (int8 CPU inference). Replaces the previous LibreTranslate/Argos deployment with a meaningfully stronger model. Serves the same JSON contract, so the shadowing-speak client (`translator.ts`) needs no changes.
+Self-hosted LibreTranslate (Argos NMT) deployed natively (no Docker) on an Ubuntu VPS. Replaces Google Cloud Translation as the primary provider for shadowing-speak when the target language is Vietnamese; Google stays wired in as a fallback and as the primary for every other locale.
 
-## Why NLLB instead of Argos?
+## Why
 
-The default Argos en→vi pack is ~250 MB and trained on a generic OPUS corpus. Sentence-level output was acceptable for short, common phrases but degraded quickly on idioms, technical vocabulary, and language-learning jargon (e.g. "shadowing technique" → "kỹ thuật theo bóng"). NLLB-200-distilled-600M is roughly twice the parameter count, trained on a much larger multilingual corpus, and the int8-quantized ctranslate2 build runs comfortably on a 4 GB CPU box.
+Google Cloud Translation costs $20 / 1M characters. Vocab + sentence + short-story translations on this project burn through that quickly. Hosting Argos on a server we already own moves the marginal cost to ~$0 per character; we pay only for VPS time we'd be paying for anyway.
 
 ## Hardware target
 
-Contabo VPS: **4 GB RAM, 4 vCPU, Ubuntu 24+**.
+Contabo VPS: **4 GB RAM, 4 vCPU, Ubuntu 24+**. Scoped to a single language pair (en→vi):
 
 | Component                       | RAM      |
 | ------------------------------- | -------- |
-| uvicorn + FastAPI               | ~80 MB   |
-| ctranslate2 NLLB int8 (loaded)  | ~1.4 GB  |
-| Python overhead                 | ~200 MB  |
-| OS + nginx                      | ~500 MB  |
-| **Total**                       | ~2.2 GB  |
+| LibreTranslate gunicorn process | ~300 MB  |
+| Argos en→vi model (loaded)      | ~700 MB  |
+| OS + nginx overhead             | ~500 MB  |
+| **Total**                       | ~1.5 GB  |
 
-`systemd` caps the unit at 2500 MB via `MemoryMax`. The 4 GB box keeps ~1.5 GB headroom for nginx + the OS.
+That leaves >2 GB headroom. The systemd unit caps the service at 2 GB via `MemoryMax`. Performance:
 
-Performance on 4 vCPU CPU-only inference:
+- First request after start: 5–15 s (cold model load).
+- Subsequent requests: 100–500 ms per sentence.
+- The upstream DB cache makes each `(text, "vi")` pair pay the cold cost at most once.
 
-- First request after start: ~3–5 s (model warm-up).
-- Subsequent requests: 200–800 ms per sentence depending on length.
-- `OMP_NUM_THREADS=4` and `intra_threads=4` so a single translate call uses all 4 cores.
-- The upstream DB cache makes each `(text, "vi")` pair pay the model cost at most once.
-
-The service only loads en↔vi today. Adding another locale is a one-line change in `LANG_MAP` (and rolling out a new model package would also work — the NLLB checkpoint already knows 200 languages).
+Other 12 target languages (ja, ko, zh, hi, ar, fr, pt, th, it, de, ru) bypass this service entirely and hit Google in the upstream client — no Argos model is loaded for them, so their RAM cost is zero.
 
 ## Layout on the server
 
 ```
-/root/apps/translate-service/
-├── app.py                                ← FastAPI app (single endpoint)
-├── requirements.txt                      ← pinned python deps
-├── install.sh                            ← native installer
-├── scripts/download_model.py             ← downloads + converts NLLB to ctranslate2 int8
-├── systemd/translate-service.service     ← unit copied to /etc/systemd/system/
-├── nginx/translate.shadowingenglish.com.conf
-└── venv/                                 ← created by install.sh
-└── models/nllb-200-distilled-600M-ct2/   ← converted model files (~1.2 GB on disk)
+/root/apps/translate-service/        ← this repo
+├── install.sh                       ← native installer (venv + pip + systemd)
+├── systemd/libretranslate.service   ← unit file (copied to /etc/systemd/system/)
+├── nginx/
+│   ├── translate.shadowingenglish.com.conf  ← HTTP-only site config
+│   └── install.sh                            ← copies into /etc/nginx/sites-*
+└── venv/                            ← created by install.sh
 ```
-
-## API contract (unchanged)
-
-`POST /translate` with JSON `{ q, source: "en", target: "vi", format: "text" }` returns `{ translatedText }`. `GET /languages` returns the same shape LibreTranslate did so existing clients keep working. `GET /health` is a tiny liveness probe.
 
 ## Deploy
 
@@ -54,28 +44,32 @@ On the server, as root:
 ```sh
 cd /root/apps/translate-service
 git pull
-./install.sh           # installs deps, downloads/converts model, registers + starts the systemd service
+./install.sh           # installs LibreTranslate, registers + starts the systemd service
 ./nginx/install.sh     # publishes the nginx site config and reloads nginx
 ```
 
-The first install downloads the NLLB checkpoint (~2.3 GB) and converts it to int8 (~1.2 GB on disk). Allow 5–10 minutes.
+First boot downloads the Argos en→vi package (~250 MB). Allow 1–3 minutes. `install.sh` waits on `/languages` before returning and prints a smoke-test translation.
+
+## API contract (used by shadowing-speak)
+
+`POST /translate` with JSON `{ q, source: "en", target: "vi", format: "text" }` returns `{ translatedText }`. No API key required by default.
 
 ## Operational notes
 
-- **Logs**: `journalctl -u translate-service -f`
-- **Restart**: `systemctl restart translate-service`
-- **Status**: `systemctl status translate-service`
+- **Logs**: `journalctl -u libretranslate -f`
+- **Restart**: `systemctl restart libretranslate`
+- **Status**: `systemctl status libretranslate`
+- **Languages loaded**: `curl http://127.0.0.1:5050/languages`
 - **Smoke test (local)**: `curl -X POST http://127.0.0.1:5050/translate -H 'Content-Type: application/json' -d '{"q":"hello","source":"en","target":"vi","format":"text"}'`
-- **Smoke test (public)**: `curl -X POST https://translate.shadowingenglish.com/translate -H 'Content-Type: application/json' -d '{"q":"hello","source":"en","target":"vi","format":"text"}'`
-- **Upgrade deps**: `./install.sh --reinstall-deps`
-- **Re-convert model**: `./install.sh --reconvert-model`
-- **Disk reclaim**: deleting `~/.cache/huggingface` after install is safe — the converted CT2 model is fully self-contained.
+- **Smoke test (public)**: `curl -X POST http://translate.shadowingenglish.com/translate -H 'Content-Type: application/json' -d '{"q":"hello","source":"en","target":"vi","format":"text"}'`
+- **Upgrade**: `./install.sh --reinstall` then `systemctl restart libretranslate`
+- **Memory pressure**: if the unit gets OOM-killed, lower workers/threads in `systemd/libretranslate.service` rather than raising `MemoryMax` past 2.5 GB (leave room for nginx + OS on the 4 GB box).
 
 ## Upstream integration
 
-`shadowing-speak/src/lib/translator.ts` reads `LIBRETRANSLATE_URL` (e.g. `https://translate.shadowingenglish.com`) and optional `LIBRETRANSLATE_API_KEY`. (The env name still says "libretranslate" for backwards compatibility; the on-the-wire JSON shape is identical, so no client change is needed.) Routing logic:
+`shadowing-speak/src/lib/translator.ts` reads `LIBRETRANSLATE_URL` (e.g. `http://translate.shadowingenglish.com`) and optional `LIBRETRANSLATE_API_KEY`. Routing logic:
 
-- `lang === "vi"` → call this service. If it returns null or throws, fall back to Google.
-- `lang !== "vi"` → call Google directly.
+- `lang === "vi"` → call Libre. If it returns null or throws, fall back to Google.
+- `lang !== "vi"` → call Google directly. Libre is skipped (its model isn't loaded anyway).
 
-Add a new target language by extending `LANG_MAP` in `app.py` and the routing set in `translator.ts`.
+Add a new language to the Libre path by editing `--load-only` in `systemd/libretranslate.service` and the routing set in `translator.ts`.

@@ -1,9 +1,0 @@
-fastapi==0.115.4
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
-ctranslate2==4.5.0
-transformers==4.46.3
-sentencepiece==0.2.0
-protobuf==5.28.3
-huggingface_hub==0.26.2
-sacremoses==0.1.1
