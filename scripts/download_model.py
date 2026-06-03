@@ -35,8 +35,22 @@ def main() -> int:
 
     os.makedirs(os.path.dirname(OUT_DIR), exist_ok=True)
 
+    # Resolve the converter executable next to the current python interpreter
+    # so the script works under any venv layout (not just PATH-aware shells).
+    venv_bin = os.path.dirname(sys.executable)
+    converter = os.path.join(venv_bin, "ct2-transformers-converter")
+    if not os.path.isfile(converter):
+        fallback = shutil.which("ct2-transformers-converter")
+        if not fallback:
+            print(
+                f"[error] ct2-transformers-converter not found at {converter} or on PATH",
+                file=sys.stderr,
+            )
+            return 1
+        converter = fallback
+
     cmd = [
-        "ct2-transformers-converter",
+        converter,
         "--model", HF_MODEL_NAME,
         "--output_dir", OUT_DIR,
         "--quantization", "int8",
